@@ -1,6 +1,6 @@
 # Overview
 
-I hate Vipre/Cobra and go's flags. I want to be able to create a way to load configuration and validate it as much at compile time as possible.
+I hate Vipre/Cobra and go's flags. I want to be able to create a way to load configuration and validate it as much at compile time as possible. Not only that, but configurations should be reloadable. New configurations should emerge as new objects in memory so that graceful switch overs can occur.
 
 ## Principles
 
@@ -13,15 +13,14 @@ I hate Vipre/Cobra and go's flags. I want to be able to create a way to load con
 
 ## Configuration life cycle
 
-1. Definition phase
+1. Definition phase (this happens at compile-time)
    1. individual values
    1. individual value validations
    1. post-load transforms
    1. grouped values
    1. grouped value validations
-1. Create configs!
 1. Test configs (outside of the application), make it easy to build config linters for formatting and validation.
-1. Load
+1. Load (this happens at run-time)
    1. From file
    1. From environment
    1. From flags
@@ -33,7 +32,7 @@ I hate Vipre/Cobra and go's flags. I want to be able to create a way to load con
 
 ## What do you mean testing/linting?
 
-Treat configs like you would a REST request. It's user-data. If you wouldn't put it into a database without validation it, you probably don't want to distribute an application with it.
+Treat configs like you would a REST request. It's user-data. If you wouldn't put it into a database without validating it, you probably don't want to distribute an application with it. You also don't want an application to start with bad configs. We'll be using validations to enforce this. These run only after all sources have been loaded.
 
 # How I want it to work
 
@@ -42,64 +41,137 @@ I'd like this scenario:
 ```go
 package main
 import (
-
-"log"
-"os"
+  "fmt"
+  "github.com/wojnosystems/flick/action"
+  flag_unmarshaler "github.com/wojnosystems/go-flag-unmarshaler"
+  "github.com/wojnosystems/flick/cli"
+  "github.com/wojnosystems/flick/parse"
+  "github.com/wojnosystems/go-env"
+  "github.com/wojnosystems/go-optional"
+  "github.com/wojnosystems/okey-dokey/bad"
+  "github.com/wojnosystems/okey-dokey/ok_range"
+  "github.com/wojnosystems/okey-dokey/ok_string"
+  "log"
+  "os"
+  "strings"
+  "time"
 )
 
-type configConfig struct {
-  config.Default
-  Path value.String
-}
-
-func DefaultConfigConfig() configConfig {
-  return configConfig{
-    Path: os.Getenv("HOME") + "/.myapp/conf",
-  }
-}
-
 type appConfig struct {
-  config.Default
-  Name value.String
-  Age value.Int
-  Databases []dbConfig
+  Profile        optional.String   `yaml:"profile" flag:"profile" flag-short:"p" env:"PROFILE"`
+  ConnectTimeout optional.Duration `yaml:"connectTimeout" flag:"connectTimeout" env:"CONNECT_TIMEOUT" usage:"Ns" help:"duration to wait for connections to complete before failing"`
+  Renamed        optional.String   `yaml:"renamed"`
 }
+func (c *appConfig)Validate(emitter bad.Emitter) (err error) {
+  ok_string.Validate(c.Profile, &ok_string.On{
+    Ensure: []ok_string.Definer{
+      &ok_string.IsRequired{},
+      &ok_string.LengthAtLeast{
+        Format: func(definition *ok_string.LengthAtLeast, value optional.String) string {
+          return "was too short, buddy!"
+        },
+        Length: 3,
+      },
+    },
+  }, emitter.Into("profile"))
+  return
+}
+var cfg = appConfig{
+  ConnectTimeout: optional.DurationFrom(30*time.Second),
+}
+func main() {
+  // Load the global configuration
+  // loads the file under ~/.myapp/config.yaml, optionally the CONFIG_FILE_PATH env var, or optionally overridden with --config-file-path= flag
+  // contents are stored in the global variable: "cfg"
+  flagGroups, err := parse.UnmarshalWithFile( os.Getenv("HOME") + "/.myapp/config.yaml", parse.Yaml(), os.Args[1:], &cfg )
+  if err != nil {
+    log.Fatal("unable to parse the config file", err)
+  }
 
-func NewAppConfig() appConfig {
-  return appConfig{
-    Name: value.String{
-      Default: "puppy",
-      Validations: []validation.Definition{
-        validation.
+  app := &cli.New{
+    Name: "myapp",
+    Commands: []cli.Command{
+      cli.Command{
+        Name: "connect",
+        Action: &connect{},
+      },
+      cli.Command{
+        Name: "version",
+        Action: action.WithoutFlagsArgErrors{Action: func() {
+          fmt.Print("v1.0.0")
+        }},
       },
     },
   }
-}
-
-type dbConfig struct {
-  config.Default
-  Host value.String
-  Username value.String
-  Password value.String
-}
-
-func main() {
-   configLocation := DefaultConfigConfig() 
-   _ = config.LoadAndValidate(&configLocation, validation.Skip, source.SourceEnv() )
-   appCfg := appConfig{}
-   validationErrors := validation.Collection{}
-   err := config.Load(
-      &appCfg,
-      &validationErrors,
-      source.YamlFile(configLocation.Path),
-      source.Env(),
-      source.SourceFlags )
+  err = app.Run(flagGroups)
   if err != nil {
-    log.Fatal("unable to parse the config file at", configLocation.Path)
+    log.Panic(err)
   }
-  if validationErrors.HasAny() {
-     validation.Println(&validationErrors)
-     log.Fatal("Fix the above issues and try again!")
+}
+
+type connectFlags struct {
+  Host optional.String `flag:"host" flag-short:"h" usage:"HOST" help:"connect to this host"`
+}
+func (f *connectFlags)Validate(emitter bad.MemberEmitter) (err error) {
+  ok_string.Validate(f.Host, &ok_string.On{
+    Ensure: []ok_string.Definer{
+      &ok_string.IsRequired{},
+      &ok_string.LengthBetween{
+        Between: ok_range.IntBetween(3, 32),
+      },
+    },
+  }, emitter.Into("host"))
+  return
+}
+type connect struct {
+  Flags          connectFlags
+  PositionalArgs []string
+}
+func (c* connect)Invoke() (err error) {
+  commands := strings.Builder{}
+  for _, pa := range c.PositionalArgs {
+    commands.WriteString(pa)
   }
+  fmt.Println("I'm connecting to host", c.Flags.Host.Value(), "with profile", cfg.Profile.Value(), "with commands:", commands.String())
+  return
 }
 ```
+
+If you call myapp with:
+
+```shell script
+$ myapp version
+> profile is required
+$ myapp --profile=ch version
+> profile was too short, buddy!
+$ myapp --profile=chris version
+> v1.0.0
+$ echo "rename: test" > /home/wojno/.myapp/config.yaml
+$ CONNECT_TIMEOUT=45s myapp --flagTrace --profile=chris
+ConfigFile:
+  ConfigFilePath: /home/wojno/.myapp/config.yaml (default)
+appConfig:
+  Profile: chris (flag:--profile)
+  ConnectTimeout: 45s (env:CONNECT_TIMEOUT)
+  Renamed: test (file:config.yaml)
+error no command specified
+Usage: myapp [--configFilePath=PATH] [--profile=STRING] [--connectTimeout=Ns] COMMAND
+Available Flags:
+  --configFilePath, -c: file path to the configuration file that will set the global defaults
+  --profile, -p
+  --connectTimeout: duration to wait for connections to complete before failing
+Available Commands:
+  connect
+  help
+  version
+
+$ myapp connect help
+error host is required
+Usage: myapp connect [--host=HOST]
+Available Flags:
+  --host, -h: connect to this host
+Available Commands:
+  help
+
+```
+
