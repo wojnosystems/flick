@@ -17,5 +17,5 @@ func Flags(globalGroup *flag_unmarshaler.Group) EnvUnmarshaler {
 
 func (e *flags) Unmarshal(config interface{}) (err error) {
 	parser := flag_unmarshaler.NewWithTypeParsers(e.globalGroup, defaultYamlParseRegistry)
-	return parser.UnmarshalWithEmitter(config, &e.collectedFlags)
+	return parser.Unmarshal(config)
 }

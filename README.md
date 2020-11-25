@@ -46,7 +46,7 @@ import (
   flag_unmarshaler "github.com/wojnosystems/go-flag-unmarshaler"
   "github.com/wojnosystems/flick/cli"
   "github.com/wojnosystems/flick/parse"
-  "github.com/wojnosystems/go-env"
+  "github.com/wojnosystems/go-env/v2"
   "github.com/wojnosystems/go-optional"
   "github.com/wojnosystems/okey-dokey/bad"
   "github.com/wojnosystems/okey-dokey/ok_range"
@@ -76,10 +76,10 @@ func (c *appConfig)Validate(emitter bad.Emitter) (err error) {
   }, emitter.Into("profile"))
   return
 }
-var cfg = appConfig{
-  ConnectTimeout: optional.DurationFrom(30*time.Second),
-}
 func main() {
+  cfg := appConfig{
+    ConnectTimeout: optional.DurationFrom(30*time.Second),
+  }
   // Load the global configuration
   // loads the file under ~/.myapp/config.yaml, optionally the CONFIG_FILE_PATH env var, or optionally overridden with --config-file-path= flag
   // contents are stored in the global variable: "cfg"
@@ -88,19 +88,29 @@ func main() {
     log.Fatal("unable to parse the config file", err)
   }
 
-  app := &cli.New{
+  app := &cli.WithSubCommands{
     Name: "myapp",
-    Commands: []cli.Command{
-      cli.Command{
-        Name: "connect",
-        Action: &connect{},
+    Commands: []cli.Commander{
+      &cli.SubCommand{
+        Name: "server",
+        Options: &serverOptions{},
+        Commands: []cli.Commander{
+          &cli.SubCommand{
+            Name: "start",
+            Options: &startOptions{},
+            Action: func(context cli.Context, global *appConfig, server *serverOptions, start *startOptions){},
+          },
+          &cli.Action{
+            Name: "stop",
+            Action: func(context cli.Context, global *appConfig, serverAddr *serverOptions){},
+          },
+          &cli.Action{
+            Name: "restart",
+            Action: func(context cli.Context, global *appConfig, serverAddr *serverOptions){},
+          },
+        },
       },
-      cli.Command{
-        Name: "version",
-        Action: action.WithoutFlagsArgErrors{Action: func() {
-          fmt.Print("v1.0.0")
-        }},
-      },
+      cli.CommandPrintVersion("v1.0.0"),
     },
   }
   err = app.Run(flagGroups)
@@ -175,3 +185,16 @@ Available Commands:
 
 ```
 
+# Testing
+
+You'll want to run some checks on your command line interface definition. You can do this easily within a main_test.go file:
+
+```go
+package main
+
+func TestCli(t *testing.T) {
+	flick.TestRun(t, &app)
+}
+```
+
+Primarily, this will ensure that all of your functions for your actions match up with your data types. It will also run other tests as deemed useful later :D.
