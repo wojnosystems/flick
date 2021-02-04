@@ -47,7 +47,7 @@ import (
   "github.com/wojnosystems/flick/cli"
   "github.com/wojnosystems/flick/parse"
   "github.com/wojnosystems/go-env/v2"
-  "github.com/wojnosystems/go-optional"
+  "github.com/wojnosystems/go-optional/v2"
   "github.com/wojnosystems/okey-dokey/bad"
   "github.com/wojnosystems/okey-dokey/ok_range"
   "github.com/wojnosystems/okey-dokey/ok_string"

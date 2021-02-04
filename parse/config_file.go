@@ -1,6 +1,6 @@
 package parse
 
-import "github.com/wojnosystems/go-optional"
+import "github.com/wojnosystems/go-optional/v2"
 
 type ConfigFile struct {
 	ConfigFilePath optional.String `env:"CONFIG_FILE_PATH" flag:"config-file-path" flag-short:"c" usage:"PATH" help:"file path to the configuration file that will set the global defaults"`

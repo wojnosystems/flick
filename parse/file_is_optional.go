@@ -1,7 +1,7 @@
 package parse
 
 import (
-	"github.com/wojnosystems/go-optional"
+	"github.com/wojnosystems/go-optional/v2"
 	"os"
 )
 
@@ -11,18 +11,18 @@ type fileIsOptional struct {
 }
 
 func (o *fileIsOptional) Unmarshal(c interface{}) (err error) {
-	if !o.pathToFile.IsSet() {
-		return
-	}
-	fileHandle, err := os.Open(o.pathToFile.Value())
-	if err != nil {
-		err = nil
-		return
-	}
-	defer func() {
-		_ = fileHandle.Close()
-	}()
-	err = o.original.UnmarshalFile(fileHandle, c)
+	o.pathToFile.IfSet(func(path string) {
+		var fileHandle *os.File
+		fileHandle, err = os.Open(path)
+		if err != nil {
+			err = nil
+			return
+		}
+		defer func() {
+			_ = fileHandle.Close()
+		}()
+		err = o.original.UnmarshalFile(fileHandle, c)
+	})
 	return
 }
 

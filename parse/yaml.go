@@ -1,7 +1,7 @@
 package parse
 
 import (
-	optional_parse_registry "github.com/wojnosystems/go-optional-parse-registry"
+	optional_parse_registry "github.com/wojnosystems/go-optional-parse-registry/v2"
 	parse_register "github.com/wojnosystems/go-parse-register"
 	"github.com/wojnosystems/yamlreg"
 	"io"
