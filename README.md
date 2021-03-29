@@ -88,32 +88,7 @@ func main() {
     log.Fatal("unable to parse the config file", err)
   }
 
-  app := &cli.WithSubCommands{
-    Name: "myapp",
-    Commands: []cli.Commander{
-      &cli.SubCommand{
-        Name: "server",
-        Options: &serverOptions{},
-        Commands: []cli.Commander{
-          &cli.SubCommand{
-            Name: "start",
-            Options: &startOptions{},
-            Action: func(context cli.Context, global *appConfig, server *serverOptions, start *startOptions){},
-          },
-          &cli.Action{
-            Name: "stop",
-            Action: func(context cli.Context, global *appConfig, serverAddr *serverOptions){},
-          },
-          &cli.Action{
-            Name: "restart",
-            Action: func(context cli.Context, global *appConfig, serverAddr *serverOptions){},
-          },
-        },
-      },
-      cli.CommandPrintVersion("v1.0.0"),
-    },
-  }
-  err = app.Run(flagGroups)
+  err = cli.Run(flagGroups)
   if err != nil {
     log.Panic(err)
   }
@@ -182,8 +157,122 @@ Available Flags:
   --host, -h: connect to this host
 Available Commands:
   help
+```
+
+## optionapi
+
+```yaml
+optionapi:
+   version: 1
+commands:
+   server:
+      options:
+         - $ref: "#/components/options/ConnectTimeout"
+      commands:
+         start:
+            usage: "how to use"
+            description: "Long text explaining things"
+            options:
+               - $ref: "#/components/options/HasBanana"
+         stop:
+            
+         restart:
+            
+components:
+   options:
+      ConnectTimeout:
+         type: duration
+         description: "how long to wait when connecting to the server"
+         usage: "Ns"
+         env:
+            name: "CONNECT_TIMEOUT"
+         flag:
+            name: "connectTimeout"
+            aliases: ["c"]
+         default: 30s
+      HasBanana:
+         type: bool
+         description: "specify to use bananas"
+         env:
+            name: "BANANA"
+         flag:
+            name: "banana"
+            aliases: ["b"]
+         default: false
+```
+
+Produces the following GoLang file:
+
+```go
+package flickstub
+
+import (
+   "context"
+   "errors"
+   "github.com/wojnosystems/go-optional/v2"
+)
+
+type Interface interface {
+   HookBefore(ctx context.Context, opts *AllCommandsOptions) error
+   ServerHookBefore(ctx context.Context, opts *ServerOptions) error
+   ServerStart(ctx context.Context, opts *ServerStartOptions) error
+   ServerStop(ctx context.Context, opts *ServerStopOptions) error
+   ServerRestart(ctx context.Context, opts *ServerRestartOptions) error
+   ServerHookAfter(ctx context.Context, opts *ServerOptions, err error) error
+   HookAfter(ctx context.Context, opts *AllCommandsOptions, err error) error
+}
+
+type AllCommandsOptions struct {
+	
+}
+
+type ServerOptions struct {
+	AllCommands AllCommandsOptions
+   ConnectTimeout optional.Duration
+}
+
+type ServerStartOptions struct {
+   Server    ServerOptions
+   HasBanana optional.Bool
+}
+
+type ServerStopOptions struct {
+   Server ServerOptions
+}
+
+type ServerRestartOptions struct {
+   Server ServerOptions
+}
+
+var ErrUnimplemented = errors.New("command has not been implemented")
+
+type Unimplemented struct {
+}
+
+func (u *Unimplemented) HookBefore(ctx context.Context, opts *AllCommandsOptions) error {
+   return nil
+}
+func (u *Unimplemented) ServerHookBefore(ctx context.Context, opts *ServerOptions) error {
+   return nil
+}
+func (u *Unimplemented) ServerStart(ctx context.Context, opts *ServerStartOptions) error {
+   return ErrUnimplemented
+}
+func (u *Unimplemented) ServerStop(ctx context.Context, opts *ServerStopOptions) error {
+   return ErrUnimplemented
+}
+func (u *Unimplemented) ServerRestart(ctx context.Context, opts *ServerRestartOptions) error {
+   return ErrUnimplemented
+}
+func (u *Unimplemented) ServerHookAfter(ctx context.Context, opts *ServerOptions, err error) error {
+   return nil
+}
+func (u *Unimplemented) HookAfter(ctx context.Context, opts *AllCommandsOptions, err error) error {
+   return nil
+}
 
 ```
+
 
 # Testing
 

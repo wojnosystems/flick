@@ -1,18 +1,16 @@
 package parse
 
 import (
-	env_parser "github.com/wojnosystems/go-env"
+	envParser "github.com/wojnosystems/go-env/v2"
 )
 
 type env struct {
-	parser env_parser.Env
+	parser *envParser.Env
 }
 
 func Env() EnvUnmarshaler {
 	return &env{
-		parser: env_parser.Env{
-			ParseRegistry: defaultYamlParseRegistry,
-		},
+		parser: envParser.NewWithParseRegistry(defaultYamlParseRegistry),
 	}
 }
 
