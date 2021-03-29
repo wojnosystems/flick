@@ -3,12 +3,12 @@ package dsl
 import "github.com/wojnosystems/okey-dokey/bad"
 
 type Document struct {
-	OptionApi  OptionApi                `yaml:"optionapi"`
-	Options    NamedOptionsOrReferences `yaml:"options"`
-	Commands   NamedCommands            `yaml:"commands"`
-	Components Components               `yaml:"components"`
-	MinArgs    uint                     `yaml:"minArgs"`
-	MaxArgs    uint                     `yaml:"maxArgs"`
+	OptionApi  OptionApi           `yaml:"optionapi"`
+	Options    []OptionOrReference `yaml:"options"`
+	Commands   NamedCommands       `yaml:"commands"`
+	Components Components          `yaml:"components"`
+	MinArgs    uint                `yaml:"minArgs"`
+	MaxArgs    uint                `yaml:"maxArgs"`
 }
 
 var DocumentValidations = DocumentValidationDefs{}

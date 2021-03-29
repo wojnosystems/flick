@@ -174,6 +174,8 @@ commands:
             description: "Long text explaining things"
             options:
                - $ref: "#/components/options/HasBanana"
+            minArgs: 1
+            maxArgs: 2
          stop:
             
          restart:
@@ -215,7 +217,7 @@ import (
 type Interface interface {
    HookBefore(ctx context.Context, opts *AllCommandsOptions) error
    ServerHookBefore(ctx context.Context, opts *ServerOptions) error
-   ServerStart(ctx context.Context, opts *ServerStartOptions) error
+   ServerStart(ctx context.Context, opts *ServerStartOptions, args []string) error
    ServerStop(ctx context.Context, opts *ServerStopOptions) error
    ServerRestart(ctx context.Context, opts *ServerRestartOptions) error
    ServerHookAfter(ctx context.Context, opts *ServerOptions, err error) error

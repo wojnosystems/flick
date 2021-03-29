@@ -3,6 +3,7 @@ package dsl
 import "github.com/wojnosystems/go-optional/v2"
 
 type Option struct {
+	Name        string          `yaml:"name"`
 	Type        string          `yaml:"type"`
 	Description optional.String `yaml:"description"`
 	Usage       optional.String `yaml:"usage"`
