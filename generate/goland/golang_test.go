@@ -14,6 +14,7 @@ func TestGoLang_Generate(t *testing.T) {
 
 import (
   "context"
+  "github.com/wojnosystems/flick/cli"
 `
 
 	cases := map[string]struct {
@@ -27,6 +28,15 @@ import (
 type Interface interface {
   HookBefore(ctx context.Context) error
   HookAfter(ctx context.Context, err error) error
+}
+
+type Unimplemented struct {
+  HookBefore(_ context.Context) error {
+    return nil
+  }
+  HookAfter(_ context.Context, _ error) error {
+    return nil
+  }
 }
 `,
 		},
@@ -52,6 +62,15 @@ type Interface interface {
 type AllCommandOptions struct {
   key1 optional.Int
 }
+
+type Unimplemented struct {
+  HookBefore(_ context.Context, _ *AllCommandOptions) error {
+    return nil
+  }
+  HookAfter(_ context.Context, _ *AllCommandOptions, _ error) error {
+    return nil
+  }
+}
 `,
 		},
 		"two commands without options": {
@@ -68,6 +87,21 @@ type Interface interface {
   HookAfter(ctx context.Context, err error) error
   Bar(ctx context.Context) error
   Foo(ctx context.Context) error
+}
+
+type Unimplemented struct {
+  HookBefore(_ context.Context) error {
+    return nil
+  }
+  HookAfter(_ context.Context, _ error) error {
+    return nil
+  }
+  Bar(_ context.Context) error {
+    return cli.ErrUnimplemented
+  }
+  Foo(_ context.Context) error {
+    return cli.ErrUnimplemented
+  }
 }
 `,
 		},
@@ -113,6 +147,21 @@ type BarOptions struct {
 type FooOptions struct {
   cat optional.Int
 }
+
+type Unimplemented struct {
+  HookBefore(_ context.Context) error {
+    return nil
+  }
+  HookAfter(_ context.Context, _ error) error {
+    return nil
+  }
+  Bar(_ context.Context, _ *BarOptions) error {
+    return cli.ErrUnimplemented
+  }
+  Foo(_ context.Context, _ *FooOptions) error {
+    return cli.ErrUnimplemented
+  }
+}
 `,
 		},
 		"sub-command inherit global option": {
@@ -140,6 +189,18 @@ type Interface interface {
 
 type AllCommandOptions struct {
   puppy optional.Int
+}
+
+type Unimplemented struct {
+  HookBefore(_ context.Context, _ *AllCommandOptions) error {
+    return nil
+  }
+  HookAfter(_ context.Context, _ *AllCommandOptions, _ error) error {
+    return nil
+  }
+  Bar(_ context.Context, _ *AllCommandOptions) error {
+    return cli.ErrUnimplemented
+  }
 }
 `,
 		},
@@ -182,6 +243,18 @@ type AllCommandOptions struct {
 type BarOptions struct {
   AllCommand AllCommandOptions
   barOption optional.Duration
+}
+
+type Unimplemented struct {
+  HookBefore(_ context.Context, _ *AllCommandOptions) error {
+    return nil
+  }
+  HookAfter(_ context.Context, _ *AllCommandOptions, _ error) error {
+    return nil
+  }
+  Bar(_ context.Context, _ *BarOptions) error {
+    return cli.ErrUnimplemented
+  }
 }
 `,
 		},

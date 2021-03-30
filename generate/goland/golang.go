@@ -23,6 +23,8 @@ type GoLang struct {
 const (
 	likelyCommandMaxNestingDepth = 10
 	singleIndent                 = `  `
+	doubleIndent                 = `    `
+	tripleIndent                 = `      `
 
 	defaultPackageName            = "flickstub"
 	defaultInterfaceName          = "Interface"
@@ -30,6 +32,7 @@ const (
 	defaultGlobalOptionStructName = "AllCommand"
 
 	goOptionalLibraryImportPath = "github.com/wojnosystems/go-optional/v2"
+	goFlickLibraryImportPath    = "github.com/wojnosystems/flick/cli"
 )
 
 type golangSubStruct struct {
@@ -63,6 +66,10 @@ func (g *GoLang) Generate(ctx context.Context, document *dsl.Document, output io
 		Path:  "context",
 		Alias: "",
 	}
+	imports[goFlickLibraryImportPath] = goImport{
+		Path:  goFlickLibraryImportPath,
+		Alias: "",
+	}
 
 	err = out.WriteLn("import (")
 	if err != nil {
@@ -92,21 +99,36 @@ func (g *GoLang) Generate(ctx context.Context, document *dsl.Document, output io
 	if err != nil {
 		return
 	}
+
+	methodsForUnimplementedStruct := make([]string, 0, 10)
+
 	if len(document.Options) != 0 {
 		err = out.WriteLnF(`%sHookBefore(ctx context.Context, opts *%sOptions) error`, singleIndent, g.globalOptionStructName())
+		methodsForUnimplementedStruct = append(methodsForUnimplementedStruct, fmt.Sprintf(`%sHookBefore(_ context.Context, _ *%sOptions) error {
+%sreturn nil
+%s}`, singleIndent, g.globalOptionStructName(), doubleIndent, singleIndent))
 		if err != nil {
 			return
 		}
 		err = out.WriteLnF(`%sHookAfter(ctx context.Context, opts *%sOptions, err error) error`, singleIndent, g.globalOptionStructName())
+		methodsForUnimplementedStruct = append(methodsForUnimplementedStruct, fmt.Sprintf(`%sHookAfter(_ context.Context, _ *%sOptions, _ error) error {
+%sreturn nil
+%s}`, singleIndent, g.globalOptionStructName(), doubleIndent, singleIndent))
 		if err != nil {
 			return
 		}
 	} else {
 		err = out.WriteLnF(`%sHookBefore(ctx context.Context) error`, singleIndent)
+		methodsForUnimplementedStruct = append(methodsForUnimplementedStruct, fmt.Sprintf(`%sHookBefore(_ context.Context) error {
+%sreturn nil
+%s}`, singleIndent, doubleIndent, singleIndent))
 		if err != nil {
 			return
 		}
 		err = out.WriteLnF(`%sHookAfter(ctx context.Context, err error) error`, singleIndent)
+		methodsForUnimplementedStruct = append(methodsForUnimplementedStruct, fmt.Sprintf(`%sHookAfter(_ context.Context, _ error) error {
+%sreturn nil
+%s}`, singleIndent, doubleIndent, singleIndent))
 		if err != nil {
 			return
 		}
@@ -140,21 +162,33 @@ func (g *GoLang) Generate(ctx context.Context, document *dsl.Document, output io
 		}
 
 		optionFormal := ""
+		optionFormalWithoutNamedParam := ""
 		if optionStructName != "" {
 			optionFormal = fmt.Sprintf(", opts *%sOptions", optionStructName)
+			optionFormalWithoutNamedParam = fmt.Sprintf(", _ *%sOptions", optionStructName)
 		}
 
 		if cmd.Commands.HasAny() {
 			err = out.WriteLnF(`%s%sHookBefore(ctx context.Context%s) error`, singleIndent, methodName, optionFormal)
+			methodsForUnimplementedStruct = append(methodsForUnimplementedStruct, fmt.Sprintf(`%s%sHookBefore(_ context.Context%s) error {
+%sreturn nil
+%s}`, singleIndent, methodName, optionFormalWithoutNamedParam, doubleIndent, singleIndent))
 			if err != nil {
 				return
 			}
+
 			err = out.WriteLnF(`%s%sHookAfter(ctx context.Context%s, err error) error`, singleIndent, methodName, optionFormal)
+			methodsForUnimplementedStruct = append(methodsForUnimplementedStruct, fmt.Sprintf(`%s%sHookAfter(_ context.Context%s, _ error) error {
+%sreturn nil
+%s}`, singleIndent, methodName, optionFormalWithoutNamedParam, doubleIndent, singleIndent))
 			if err != nil {
 				return
 			}
 		} else {
 			walkErr = out.WriteLnF(`%s%s(ctx context.Context%s) error`, singleIndent, methodName, optionFormal)
+			methodsForUnimplementedStruct = append(methodsForUnimplementedStruct, fmt.Sprintf(`%s%s(_ context.Context%s) error {
+%sreturn cli.ErrUnimplemented
+%s}`, singleIndent, methodName, optionFormalWithoutNamedParam, doubleIndent, singleIndent))
 			if walkErr != nil {
 				return
 			}
@@ -207,6 +241,26 @@ func (g *GoLang) Generate(ctx context.Context, document *dsl.Document, output io
 		if err != nil {
 			return
 		}
+	}
+
+	// write unimplemented stub
+	err = out.WriteLn("")
+	if err != nil {
+		return
+	}
+	err = out.WriteLnF("type %s struct {", g.structName())
+	if err != nil {
+		return
+	}
+	for _, s := range methodsForUnimplementedStruct {
+		err = out.WriteLn(s)
+		if err != nil {
+			return
+		}
+	}
+	err = out.WriteLn("}")
+	if err != nil {
+		return
 	}
 
 	return
