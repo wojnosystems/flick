@@ -3,6 +3,7 @@ package string_writer
 import (
 	"fmt"
 	"io"
+	"strings"
 )
 
 type ByteCounter struct {
@@ -22,18 +23,22 @@ func (c ByteCounter) Count() int {
 }
 
 type Type struct {
-	Counter ByteCounter
-	stream  io.Writer
+	Counter      ByteCounter
+	stream       io.Writer
+	indent       string
+	indentLevel  uint
+	cachedIndent string
 }
 
-func New(stream io.Writer) *Type {
+func New(stream io.Writer, indent string) *Type {
 	return &Type{
 		stream: stream,
+		indent: indent,
 	}
 }
 
 func (w *Type) Write(v string) error {
-	return w.Counter.Record(w.stream.Write([]byte(v)))
+	return w.Counter.Record(w.stream.Write([]byte(w.cachedIndent + v)))
 }
 
 func (w *Type) WriteLn(v string) error {
@@ -46,4 +51,13 @@ func (w *Type) Write2Ln(v string) error {
 
 func (w *Type) WriteLnF(format string, values ...interface{}) error {
 	return w.WriteLn(fmt.Sprintf(format, values...))
+}
+
+func (w *Type) In(callback func(out *Type) error) error {
+	w.indentLevel++
+	w.cachedIndent = strings.Repeat(w.indent, int(w.indentLevel))
+	err := callback(w)
+	w.indentLevel--
+	w.cachedIndent = strings.Repeat(w.indent, int(w.indentLevel))
+	return err
 }

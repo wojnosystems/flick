@@ -23,8 +23,6 @@ type GoLang struct {
 const (
 	likelyCommandMaxNestingDepth = 10
 	singleIndent                 = `  `
-	doubleIndent                 = `    `
-	tripleIndent                 = `      `
 
 	defaultPackageName            = "flickstub"
 	defaultInterfaceName          = "Interface"
@@ -35,20 +33,48 @@ const (
 	goFlickLibraryImportPath    = "github.com/wojnosystems/flick/cli"
 )
 
-type golangSubStruct struct {
+type optionStruct struct {
 	name       string
 	parentName string
 	options    []dsl.Option
 }
 
-func (g *GoLang) Generate(ctx context.Context, document *dsl.Document, output io.Writer) (bytesWritten int, err error) {
+type structMethodDefinition struct {
+	declaration string
+	body        string
+}
+
+type collected struct {
+	interfaceDeclarations []string
+	baseStructMethodDefs  []structMethodDefinition
+	globalStruct          *optionStruct
+	optionStructs         []optionStruct
+	optionStructRegistry  string_set.Collection
+}
+
+func (c *collected) addGlobalStruct(o optionStruct) {
+	c.globalStruct = &o
+	c.addOptionStruct(o)
+}
+
+func (c *collected) addOptionStruct(o optionStruct) {
+	c.optionStructs = append(c.optionStructs, o)
+	c.optionStructRegistry.Add(o.name)
+}
+
+func (c collected) getParentStructName(prefix []string) string {
+	return getStructOrBlank(stringSlicePop(prefix), &c.optionStructRegistry, c.globalStruct)
+}
+
+func (g *GoLang) Generate(_ context.Context, document *dsl.Document, output io.Writer) (bytesWritten int, err error) {
 	if g.optionTypes == nil {
 		g.optionTypes = make(optionTypeRegistry)
 		registerOptionalTypes(g.optionTypes)
 	}
 
 	out := string_writer.New(
-		output)
+		output,
+		singleIndent)
 	defer func() {
 		bytesWritten = out.Counter.Count()
 	}()
@@ -62,206 +88,33 @@ func (g *GoLang) Generate(ctx context.Context, document *dsl.Document, output io
 	if err != nil {
 		return
 	}
-	imports["context"] = goImport{
-		Path:  "context",
-		Alias: "",
-	}
-	imports[goFlickLibraryImportPath] = goImport{
-		Path:  goFlickLibraryImportPath,
-		Alias: "",
-	}
-
-	err = out.WriteLn("import (")
-	if err != nil {
-		return
-	}
-	importKeysSorted := make([]string, 0, len(imports))
-	for s := range imports {
-		importKeysSorted = append(importKeysSorted, s)
-	}
-	sort.Strings(importKeysSorted)
-	for _, key := range importKeysSorted {
-		record := `"` + imports[key].Path + `"`
-		if len(imports[key].Alias) != 0 {
-			record = imports[key].Alias + " " + record
-		}
-		err = out.WriteLnF(`%s%s`, singleIndent, record)
-		if err != nil {
-			return
-		}
-	}
-	err = out.Write2Ln(")")
+	err = writeImports(out, imports)
 	if err != nil {
 		return
 	}
 
-	err = out.WriteLnF(`type %s interface {`, g.interfaceName())
+	generatedComponents := collected{
+		interfaceDeclarations: make([]string, 0, 10),
+		baseStructMethodDefs:  make([]structMethodDefinition, 0, 10),
+		optionStructs:         make([]optionStruct, 0, 10),
+	}
+
+	err = g.collectComponents(document, &generatedComponents)
 	if err != nil {
 		return
 	}
 
-	methodsForUnimplementedStruct := make([]string, 0, 10)
-
-	if len(document.Options) != 0 {
-		err = out.WriteLnF(`%sHookBefore(ctx context.Context, opts *%sOptions) error`, singleIndent, g.globalOptionStructName())
-		methodsForUnimplementedStruct = append(methodsForUnimplementedStruct, fmt.Sprintf(`%sHookBefore(_ context.Context, _ *%sOptions) error {
-%sreturn nil
-%s}`, singleIndent, g.globalOptionStructName(), doubleIndent, singleIndent))
-		if err != nil {
-			return
-		}
-		err = out.WriteLnF(`%sHookAfter(ctx context.Context, opts *%sOptions, err error) error`, singleIndent, g.globalOptionStructName())
-		methodsForUnimplementedStruct = append(methodsForUnimplementedStruct, fmt.Sprintf(`%sHookAfter(_ context.Context, _ *%sOptions, _ error) error {
-%sreturn nil
-%s}`, singleIndent, g.globalOptionStructName(), doubleIndent, singleIndent))
-		if err != nil {
-			return
-		}
-	} else {
-		err = out.WriteLnF(`%sHookBefore(ctx context.Context) error`, singleIndent)
-		methodsForUnimplementedStruct = append(methodsForUnimplementedStruct, fmt.Sprintf(`%sHookBefore(_ context.Context) error {
-%sreturn nil
-%s}`, singleIndent, doubleIndent, singleIndent))
-		if err != nil {
-			return
-		}
-		err = out.WriteLnF(`%sHookAfter(ctx context.Context, err error) error`, singleIndent)
-		methodsForUnimplementedStruct = append(methodsForUnimplementedStruct, fmt.Sprintf(`%sHookAfter(_ context.Context, _ error) error {
-%sreturn nil
-%s}`, singleIndent, doubleIndent, singleIndent))
-		if err != nil {
-			return
-		}
-	}
-
-	registeredStructs := string_set.Collection{}
-
-	optionStructsToGenerate := make([]golangSubStruct, 0, 10)
-	var globalStruct *golangSubStruct
-	if len(document.Options) != 0 {
-		globalStruct = &golangSubStruct{
-			name:       g.globalOptionStructName(),
-			parentName: "",
-			options:    make([]dsl.Option, len(document.Options)),
-		}
-		for i, reference := range document.Options {
-			globalStruct.options[i] = reference.Option
-		}
-		optionStructsToGenerate = append(optionStructsToGenerate, *globalStruct)
-		registeredStructs.Add(globalStruct.name)
-	}
-
-	err = walkCommands(document, func(prefix []string, cmd dsl.Command) (walkErr error) {
-		methodName := joinPrefixesAsMethodName(prefix)
-
-		var optionStructName string
-		if len(cmd.Options) != 0 {
-			optionStructName = methodName
-		} else {
-			optionStructName = getStructOrBlank(stringSlicePop(prefix), &registeredStructs, globalStruct)
-		}
-
-		optionFormal := ""
-		optionFormalWithoutNamedParam := ""
-		if optionStructName != "" {
-			optionFormal = fmt.Sprintf(", opts *%sOptions", optionStructName)
-			optionFormalWithoutNamedParam = fmt.Sprintf(", _ *%sOptions", optionStructName)
-		}
-
-		if cmd.Commands.HasAny() {
-			err = out.WriteLnF(`%s%sHookBefore(ctx context.Context%s) error`, singleIndent, methodName, optionFormal)
-			methodsForUnimplementedStruct = append(methodsForUnimplementedStruct, fmt.Sprintf(`%s%sHookBefore(_ context.Context%s) error {
-%sreturn nil
-%s}`, singleIndent, methodName, optionFormalWithoutNamedParam, doubleIndent, singleIndent))
-			if err != nil {
-				return
-			}
-
-			err = out.WriteLnF(`%s%sHookAfter(ctx context.Context%s, err error) error`, singleIndent, methodName, optionFormal)
-			methodsForUnimplementedStruct = append(methodsForUnimplementedStruct, fmt.Sprintf(`%s%sHookAfter(_ context.Context%s, _ error) error {
-%sreturn nil
-%s}`, singleIndent, methodName, optionFormalWithoutNamedParam, doubleIndent, singleIndent))
-			if err != nil {
-				return
-			}
-		} else {
-			walkErr = out.WriteLnF(`%s%s(ctx context.Context%s) error`, singleIndent, methodName, optionFormal)
-			methodsForUnimplementedStruct = append(methodsForUnimplementedStruct, fmt.Sprintf(`%s%s(_ context.Context%s) error {
-%sreturn cli.ErrUnimplemented
-%s}`, singleIndent, methodName, optionFormalWithoutNamedParam, doubleIndent, singleIndent))
-			if walkErr != nil {
-				return
-			}
-
-			if len(cmd.Options) != 0 {
-				commandOption := golangSubStruct{
-					name:       prefixToOptionStructName(prefix),
-					parentName: getStructOrBlank(stringSlicePop(prefix), &registeredStructs, globalStruct),
-					options:    make([]dsl.Option, len(cmd.Options)),
-				}
-				for i, reference := range cmd.Options {
-					commandOption.options[i] = reference.Option
-				}
-				optionStructsToGenerate = append(optionStructsToGenerate, commandOption)
-				registeredStructs.Add(commandOption.name)
-			}
-		}
-		return
-	})
-	if err != nil {
-		return
-	}
-	err = out.WriteLn(`}`)
+	err = g.writeInterface(out, generatedComponents.interfaceDeclarations)
 	if err != nil {
 		return
 	}
 
-	for _, subStruct := range optionStructsToGenerate {
-		err = out.WriteLn("")
-		if err != nil {
-			return
-		}
-		err = out.WriteLnF(`type %sOptions struct {`, subStruct.name)
-		if err != nil {
-			return
-		}
-		if len(subStruct.parentName) != 0 {
-			err = out.WriteLnF(`%s%s %sOptions`, singleIndent, subStruct.parentName, subStruct.parentName)
-			if err != nil {
-				return
-			}
-		}
-		for _, optionDef := range subStruct.options {
-			err = writeOptionStructField(out, optionDef.Name, optionDef, g.optionTypes)
-			if err != nil {
-				return
-			}
-		}
-		err = out.WriteLn(`}`)
-		if err != nil {
-			return
-		}
+	err = g.writeOptionStructs(out, &generatedComponents)
+	if err != nil {
+		return
 	}
 
-	// write unimplemented stub
-	err = out.WriteLn("")
-	if err != nil {
-		return
-	}
-	err = out.WriteLnF("type %s struct {", g.structName())
-	if err != nil {
-		return
-	}
-	for _, s := range methodsForUnimplementedStruct {
-		err = out.WriteLn(s)
-		if err != nil {
-			return
-		}
-	}
-	err = out.WriteLn("}")
-	if err != nil {
-		return
-	}
+	err = g.writeUnimplementedStruct(out, generatedComponents.baseStructMethodDefs)
 
 	return
 }
@@ -313,6 +166,18 @@ func collectImports(document *dsl.Document, optionTypes optionTypeRegistry) (out
 		}
 		return
 	})
+	if err != nil {
+		return
+	}
+
+	out["context"] = goImport{
+		Path:  "context",
+		Alias: "",
+	}
+	out[goFlickLibraryImportPath] = goImport{
+		Path:  goFlickLibraryImportPath,
+		Alias: "",
+	}
 	return
 }
 
@@ -339,6 +204,35 @@ func addOptionToImports(out importRegistryType, prefix []string, option *dsl.Opt
 	return
 }
 
+func writeImports(out *string_writer.Type, imports importRegistryType) (err error) {
+	importKeysSorted := make([]string, 0, len(imports))
+	for s := range imports {
+		importKeysSorted = append(importKeysSorted, s)
+	}
+	sort.Strings(importKeysSorted)
+	err = out.WriteLn("import (")
+	if err != nil {
+		return
+	}
+	err = out.In(func(out *string_writer.Type) (err error) {
+		for _, key := range importKeysSorted {
+			record := `"` + imports[key].Path + `"`
+			if len(imports[key].Alias) != 0 {
+				record = imports[key].Alias + " " + record
+			}
+			err = out.WriteLn(record)
+			if err != nil {
+				return
+			}
+		}
+		return
+	})
+	if err != nil {
+		return
+	}
+	return out.Write2Ln(")")
+}
+
 func shouldUseOptional(option dsl.Option, prefix []string) (useOptional bool, err error) {
 	if option.Required {
 		if option.Default.IsSet() {
@@ -355,6 +249,106 @@ func shouldUseOptional(option dsl.Option, prefix []string) (useOptional bool, er
 			useOptional = true
 		}
 	}
+	return
+}
+
+func (g *GoLang) collectComponents(document *dsl.Document, c *collected) (err error) {
+	if len(document.Options) != 0 {
+		// BEFORE HOOK
+		c.interfaceDeclarations = append(c.interfaceDeclarations,
+			fmt.Sprintf(`HookBefore(ctx context.Context, opts *%sOptions) error`,
+				g.globalOptionStructName()))
+		c.baseStructMethodDefs = append(c.baseStructMethodDefs, structMethodDefinition{
+			declaration: fmt.Sprintf(`HookBefore(_ context.Context, _ *%sOptions) error`, g.globalOptionStructName()),
+			body:        "return nil",
+		})
+
+		// AFTER HOOK
+		c.interfaceDeclarations = append(c.interfaceDeclarations,
+			fmt.Sprintf(`HookAfter(ctx context.Context, opts *%sOptions, err error) error`,
+				g.globalOptionStructName()))
+		c.baseStructMethodDefs = append(c.baseStructMethodDefs, structMethodDefinition{
+			declaration: fmt.Sprintf(`HookAfter(_ context.Context, _ *%sOptions, _ error) error`, g.globalOptionStructName()),
+			body:        "return nil",
+		})
+	} else {
+		c.interfaceDeclarations = append(c.interfaceDeclarations,
+			`HookBefore(ctx context.Context) error`)
+		c.baseStructMethodDefs = append(c.baseStructMethodDefs, structMethodDefinition{
+			declaration: `HookBefore(_ context.Context) error`,
+			body:        "return nil",
+		})
+
+		c.interfaceDeclarations = append(c.interfaceDeclarations,
+			`HookAfter(ctx context.Context, err error) error`)
+		c.baseStructMethodDefs = append(c.baseStructMethodDefs, structMethodDefinition{
+			declaration: `HookAfter(_ context.Context, _ error) error`,
+			body:        "return nil",
+		})
+	}
+
+	if len(document.Options) != 0 {
+		globalStruct := optionStruct{
+			name:    g.globalOptionStructName(),
+			options: make([]dsl.Option, len(document.Options)),
+		}
+		for i, reference := range document.Options {
+			globalStruct.options[i] = reference.Option
+		}
+		c.addGlobalStruct(globalStruct)
+	}
+
+	err = walkCommands(document, func(prefix []string, cmd dsl.Command) (walkErr error) {
+		methodName := joinPrefixesAsMethodName(prefix)
+
+		var optionStructName string
+		if len(cmd.Options) != 0 {
+			optionStructName = methodName
+		} else {
+			optionStructName = getStructOrBlank(stringSlicePop(prefix), &c.optionStructRegistry, c.globalStruct)
+		}
+
+		optionFormal := ""
+		optionFormalWithoutNamedParam := ""
+		if optionStructName != "" {
+			optionFormal = fmt.Sprintf(", opts *%sOptions", optionStructName)
+			optionFormalWithoutNamedParam = fmt.Sprintf(", _ *%sOptions", optionStructName)
+		}
+
+		if cmd.Commands.HasAny() {
+			c.interfaceDeclarations = append(c.interfaceDeclarations, fmt.Sprintf(`%sHookBefore(ctx context.Context%s) error`, methodName, optionFormal))
+			c.baseStructMethodDefs = append(c.baseStructMethodDefs, structMethodDefinition{
+				declaration: fmt.Sprintf(`%sHookBefore(_ context.Context%s) error`, methodName, optionFormalWithoutNamedParam),
+				body:        `return nil`,
+			})
+
+			c.interfaceDeclarations = append(c.interfaceDeclarations, fmt.Sprintf(`%sHookAfter(ctx context.Context%s, err error) error`, methodName, optionFormal))
+			c.baseStructMethodDefs = append(c.baseStructMethodDefs, structMethodDefinition{
+				declaration: fmt.Sprintf(`%sHookAfter(_ context.Context%s, _ error) error`, methodName, optionFormalWithoutNamedParam),
+				body:        `return nil`,
+			})
+		} else {
+			c.interfaceDeclarations = append(c.interfaceDeclarations, fmt.Sprintf(
+				`%s(ctx context.Context%s) error`, methodName, optionFormal))
+			c.baseStructMethodDefs = append(c.baseStructMethodDefs, structMethodDefinition{
+				declaration: fmt.Sprintf(`%s(_ context.Context%s) error`, methodName, optionFormalWithoutNamedParam),
+				body:        `return cli.ErrUnimplemented`,
+			})
+
+			if len(cmd.Options) != 0 {
+				commandOption := optionStruct{
+					name:       prefixToOptionStructName(prefix),
+					parentName: c.getParentStructName(prefix),
+					options:    make([]dsl.Option, len(cmd.Options)),
+				}
+				for i, reference := range cmd.Options {
+					commandOption.options[i] = reference.Option
+				}
+				c.addOptionStruct(commandOption)
+			}
+		}
+		return
+	})
 	return
 }
 
@@ -388,12 +382,98 @@ func walkCommandsRecursive(cmd dsl.NamedCommands, recurPrefix *[]string, callbac
 	return
 }
 
-func joinPrefixesAsMethodName(prefix []string) string {
-	titlized := make([]string, len(prefix))
-	for i, s := range prefix {
-		titlized[i] = strings.Title(s)
+func (g *GoLang) writeInterface(out *string_writer.Type, declarations []string) (err error) {
+	err = out.WriteLnF(`type %s interface {`, g.interfaceName())
+	if err != nil {
+		return
 	}
-	return strings.Join(titlized, "")
+	err = out.In(func(out *string_writer.Type) (err error) {
+		for _, declaration := range declarations {
+			err = out.WriteLn(declaration)
+		}
+		return
+	})
+	if err != nil {
+		return
+	}
+	err = out.WriteLn(`}`)
+	return
+}
+
+func (g *GoLang) writeOptionStructs(out *string_writer.Type, declarations *collected) (err error) {
+	for _, subStruct := range declarations.optionStructs {
+		err = out.WriteLn("")
+		if err != nil {
+			return
+		}
+		err = out.WriteLnF(`type %sOptions struct {`, subStruct.name)
+		if err != nil {
+			return
+		}
+		err = out.In(func(out *string_writer.Type) (err error) {
+			if len(subStruct.parentName) != 0 {
+				err = out.WriteLnF(`%s %sOptions`, subStruct.parentName, subStruct.parentName)
+				if err != nil {
+					return
+				}
+			}
+			for _, optionDef := range subStruct.options {
+				err = writeOptionStructField(out, optionDef.Name, optionDef, g.optionTypes)
+				if err != nil {
+					return
+				}
+			}
+			return
+		})
+		if err != nil {
+			return
+		}
+		err = out.WriteLn(`}`)
+	}
+	return
+}
+
+func (g *GoLang) writeUnimplementedStruct(out *string_writer.Type, declarations []structMethodDefinition) (err error) {
+	err = out.WriteLn("")
+	if err != nil {
+		return
+	}
+	err = out.WriteLnF("type %s struct {", g.structName())
+	if err != nil {
+		return
+	}
+	err = out.In(func(out *string_writer.Type) (err error) {
+		for _, s := range declarations {
+			err = out.WriteLnF(`%s {`, s.declaration)
+			if err != nil {
+				return
+			}
+			err = out.In(func(out *string_writer.Type) error {
+				return out.WriteLn(s.body)
+			})
+			if err != nil {
+				return
+			}
+			err = out.WriteLn(`}`)
+			if err != nil {
+				return
+			}
+		}
+		return
+	})
+	if err != nil {
+		return
+	}
+	err = out.WriteLn("}")
+	return nil
+}
+
+func joinPrefixesAsMethodName(prefix []string) string {
+	title := make([]string, len(prefix))
+	for i, s := range prefix {
+		title[i] = strings.Title(s)
+	}
+	return strings.Join(title, "")
 }
 
 func writeOptionStructField(out *string_writer.Type, optionKey string, optionDef dsl.Option, optionTypes optionTypeRegistry) (err error) {
@@ -409,7 +489,7 @@ func writeOptionStructField(out *string_writer.Type, optionKey string, optionDef
 		} else {
 			typeToUse = t.OptionalType
 		}
-		err = out.WriteLnF(`%s%s %s`, singleIndent, optionDef.Name, typeToUse)
+		err = out.WriteLnF(`%s %s`, optionDef.Name, typeToUse)
 	}
 	return
 }
@@ -428,7 +508,7 @@ func eachString(items []string, callback func(string) string) (out []string) {
 	return
 }
 
-func getStructOrBlank(prefix []string, set *string_set.Collection, globalStruct *golangSubStruct) string {
+func getStructOrBlank(prefix []string, set *string_set.Collection, globalStruct *optionStruct) string {
 	for i := len(prefix) - 1; i > 0; i-- {
 		p := prefixToOptionStructName(prefix[0:i])
 		if set.Exists(p) {
