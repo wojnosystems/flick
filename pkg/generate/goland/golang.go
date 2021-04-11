@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/wojnosystems/flick/generate/dsl"
-	"github.com/wojnosystems/flick/string_set"
-	"github.com/wojnosystems/flick/string_writer"
+	"github.com/wojnosystems/flick/pkg/generate/dsl"
+	"github.com/wojnosystems/flick/pkg/string_writer"
+	"github.com/wojnosystems/go-string-set/string_set"
 	"io"
 	"sort"
 	"strings"
@@ -49,7 +49,7 @@ type collected struct {
 	baseStructMethodDefs  []structMethodDefinition
 	globalStruct          *optionStruct
 	optionStructs         []optionStruct
-	optionStructRegistry  string_set.Collection
+	optionStructRegistry  string_set.Interface
 }
 
 func (c *collected) addGlobalStruct(o optionStruct) {
@@ -63,7 +63,7 @@ func (c *collected) addOptionStruct(o optionStruct) {
 }
 
 func (c collected) getParentStructName(prefix []string) string {
-	return getStructOrBlank(stringSlicePop(prefix), &c.optionStructRegistry, c.globalStruct)
+	return getStructOrBlank(stringSlicePop(prefix), c.optionStructRegistry, c.globalStruct)
 }
 
 func (g *GoLang) Generate(_ context.Context, document *dsl.Document, output io.Writer) (bytesWritten int, err error) {
@@ -97,6 +97,7 @@ func (g *GoLang) Generate(_ context.Context, document *dsl.Document, output io.W
 		interfaceDeclarations: make([]string, 0, 10),
 		baseStructMethodDefs:  make([]structMethodDefinition, 0, 10),
 		optionStructs:         make([]optionStruct, 0, 10),
+		optionStructRegistry:  string_set.New(),
 	}
 
 	err = g.collectComponents(document, &generatedComponents)
@@ -115,6 +116,8 @@ func (g *GoLang) Generate(_ context.Context, document *dsl.Document, output io.W
 	}
 
 	err = g.writeUnimplementedStruct(out, generatedComponents.baseStructMethodDefs)
+
+	// TODO: write registration function that maps the parsed command with the options group to execute what is required.
 
 	return
 }
@@ -305,7 +308,7 @@ func (g *GoLang) collectComponents(document *dsl.Document, c *collected) (err er
 		if len(cmd.Options) != 0 {
 			optionStructName = methodName
 		} else {
-			optionStructName = getStructOrBlank(stringSlicePop(prefix), &c.optionStructRegistry, c.globalStruct)
+			optionStructName = getStructOrBlank(stringSlicePop(prefix), c.optionStructRegistry, c.globalStruct)
 		}
 
 		optionFormal := ""
@@ -332,7 +335,7 @@ func (g *GoLang) collectComponents(document *dsl.Document, c *collected) (err er
 				`%s(ctx context.Context%s) error`, methodName, optionFormal))
 			c.baseStructMethodDefs = append(c.baseStructMethodDefs, structMethodDefinition{
 				declaration: fmt.Sprintf(`%s(_ context.Context%s) error`, methodName, optionFormalWithoutNamedParam),
-				body:        `return cli.ErrUnimplemented`,
+				body:        `return cli.ErrCommandUnimplemented`,
 			})
 
 			if len(cmd.Options) != 0 {
@@ -508,10 +511,10 @@ func eachString(items []string, callback func(string) string) (out []string) {
 	return
 }
 
-func getStructOrBlank(prefix []string, set *string_set.Collection, globalStruct *optionStruct) string {
+func getStructOrBlank(prefix []string, set string_set.Tester, globalStruct *optionStruct) string {
 	for i := len(prefix) - 1; i > 0; i-- {
 		p := prefixToOptionStructName(prefix[0:i])
-		if set.Exists(p) {
+		if set.Includes(p) {
 			return p
 		}
 	}

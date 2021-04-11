@@ -6,12 +6,26 @@ import (
 )
 
 type Command struct {
-	Usage       optional.String     `yaml:"usage"`
-	Description optional.String     `yaml:"description"`
-	Options     []OptionOrReference `yaml:"options"`
-	Commands    NamedCommands       `yaml:"commands"`
-	MinArgs     uint                `yaml:"minArgs"`
-	MaxArgs     uint                `yaml:"maxArgs"`
+	// Usage explains how to use this option in a one-liner
+	// e.g. --name=Bob
+	Usage optional.String `yaml:"usage"`
+
+	// Description is a longer version of usage, include multi-line descriptions here
+	Description optional.String `yaml:"description"`
+
+	// Options defines what options this command will parse
+	Options []OptionOrReference `yaml:"options"`
+
+	// Commands are the sub-commands of this command
+	Commands NamedCommands `yaml:"commands"`
+
+	// MinArgs is the minimum number of arguments that this command takes,
+	// this is incompatible with Commands, as commands are "arguments" and is ignored when Commands is not empty
+	MinArgs uint `yaml:"minArgs"`
+
+	// MaxArgs is the maximum number of arguments that this command takes,
+	// this is incompatible with Commands, as commands are "arguments" and is ignored when Commands is not empty
+	MaxArgs uint `yaml:"maxArgs"`
 }
 
 var commandValidations = commandValidationDefs{}

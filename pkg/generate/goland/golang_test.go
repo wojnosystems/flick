@@ -5,7 +5,7 @@ import (
 	"context"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wojnosystems/flick/generate/dsl"
+	"github.com/wojnosystems/flick/pkg/generate/dsl"
 	"testing"
 )
 
@@ -43,7 +43,7 @@ type Unimplemented struct {
 		"with global options": {
 			input: dsl.Document{
 				Options: []dsl.OptionOrReference{
-					dsl.OptionOrReference{
+					{
 						Option: dsl.Option{
 							Name: "key1",
 							Type: "int",
@@ -97,10 +97,10 @@ type Unimplemented struct {
     return nil
   }
   Bar(_ context.Context) error {
-    return cli.ErrUnimplemented
+    return cli.ErrCommandUnimplemented
   }
   Foo(_ context.Context) error {
-    return cli.ErrUnimplemented
+    return cli.ErrCommandUnimplemented
   }
 }
 `,
@@ -156,10 +156,10 @@ type Unimplemented struct {
     return nil
   }
   Bar(_ context.Context, _ *BarOptions) error {
-    return cli.ErrUnimplemented
+    return cli.ErrCommandUnimplemented
   }
   Foo(_ context.Context, _ *FooOptions) error {
-    return cli.ErrUnimplemented
+    return cli.ErrCommandUnimplemented
   }
 }
 `,
@@ -199,7 +199,7 @@ type Unimplemented struct {
     return nil
   }
   Bar(_ context.Context, _ *AllCommandOptions) error {
-    return cli.ErrUnimplemented
+    return cli.ErrCommandUnimplemented
   }
 }
 `,
@@ -253,7 +253,7 @@ type Unimplemented struct {
     return nil
   }
   Bar(_ context.Context, _ *BarOptions) error {
-    return cli.ErrUnimplemented
+    return cli.ErrCommandUnimplemented
   }
 }
 `,

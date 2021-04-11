@@ -2,7 +2,7 @@ package generate
 
 import (
 	"context"
-	"github.com/wojnosystems/flick/generate/dsl"
+	"github.com/wojnosystems/flick/pkg/generate/dsl"
 	"io"
 )
 
